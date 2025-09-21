@@ -12,6 +12,7 @@ from Crypto.Cipher import AES
 
 # liboqs (Falcon)
 import oqs
+import time
 
 # ---------- Helper functions ----------
 
@@ -125,15 +126,47 @@ def main():
     e_sk, e_pk, f_sk, f_pk = hybrid.generate_keypairs()
     message = b"Test hybrid signature for PQC"
 
-    print("Signing message...")
-    r, sE, sF = hybrid.hybrid_sign(message, e_sk, f_sk)
-    print(f"r (hex, len={len(r)}): {r.hex()}")
-    print(f"sE (hex, len={len(sE)}): {sE.hex()[:64]}... (truncated)")
-    print(f"sF (hex, len={len(sF)}): {sF.hex()[:64]}... (truncated)")
+    print("=== Hybrid Signature Demo (ECDSA + Falcon) ===\n")
 
-    print("\nVerifying hybrid signature...")
-    result = hybrid.hybrid_verify(message, (r, sE, sF), e_pk, f_pk)
-    print("Verification result:", result)
+    # --- Signing ---
+    print("[*] Signing message:", message.decode())
+    start = time.time()
+    r, sE, sF = hybrid.hybrid_sign(message, e_sk, f_sk)
+    end = time.time()
+    print(f"[+] Signing completed in {end - start:.4f} seconds\n")
+
+    # Show internals
+    rE = r[:32]
+    r_tau = r[32:]
+    rF = prp_aes_ctr(r, key=bytes(bits_to_bytes_ceil(hybrid.lambda_p_bits)))
+    rF = rF[:40]
+
+    print("Generated components:")
+    print(f"  rE (len={len(rE)}): {rE.hex()}")
+    print(f"  rτ (len={len(r_tau)}): {r_tau.hex()}")
+    print(f"  r  (len={len(r)}): {r.hex()}")
+    print(f"  rF (len={len(rF)}): {rF.hex()}")
+    print(f"  sE (len={len(sE)}): {sE.hex()}")
+    print(f"  sF (len={len(sF)}): {sF.hex()[:64]}... (truncated)")
+    print()
+
+    # --- Verification ---
+    print("[*] Verifying hybrid signature...")
+    start = time.time()
+    r, sE, sF = (r, sE, sF)
+    rE = r[:32]
+    rF = prp_aes_ctr(r, key=bytes(bits_to_bytes_ceil(hybrid.lambda_p_bits)))
+    rF = rF[:40]
+
+    ok_ecdsa = ecdsa_verify(message, rE, sE, e_pk)
+    ok_falcon = hybrid.falcon.verify(message, sF, f_pk)
+    end = time.time()
+
+    print("Verification steps:")
+    print(f"  ECDSA verification: {'PASS' if ok_ecdsa else 'FAIL'}")
+    print(f"  Falcon verification: {'PASS' if ok_falcon else 'FAIL'}")
+    print(f"[+] Overall verification result: {ok_ecdsa and ok_falcon}")
+    print(f"[+] Verification completed in {end - start:.4f} seconds")
 
 if __name__ == "__main__":
     main()
